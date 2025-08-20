@@ -116,7 +116,7 @@ export default function Index() {
         setIsTyping(true);
 
         try {
-          const response = await fetch("http://localhost:8000/chat", {
+          const response = await fetch("https://5cff42d0a5b9.ngrok-free.app/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ message: content }),
