@@ -62,10 +62,105 @@ export default function Index() {
       : firstSentence.slice(0, 40) + "...";
   };
 
-  const handleNewChat = useCallback(() => {
+  const handleNewChat = useCallback(async () => {
+    try {
+      await fetch("http://localhost:8000/new_chat", {
+        method: "POST",
+      });
+    } catch (error) {
+      console.error("Failed to reset chat in backend:", error);
+    }
+    setChats([]);
     setActiveChat(null);
   }, []);
+  
+  const handleSendMessage = useCallback(
+    async (content: string) => {
+      const messageId = `msg-${Date.now()}`;
+      const timestamp = new Date();
+  
+      const userMessage: MessageType = {
+        id: messageId,
+        content,
+        role: "user",
+        timestamp,
+      };
+  
+      // ✅ Add message to current chat or create new one
+      if (!activeChat) {
+        const newChatId = `chat-${Date.now()}`;
+        const newChat: Chat = {
+          id: newChatId,
+          title: generateChatTitle(content),
+          lastMessage: content,
+          timestamp,
+          messages: [userMessage],
+        };
+  
+        setChats((prevChats) => [newChat, ...prevChats]);
+        setActiveChat(newChatId);
+      } else {
+        setChats((prevChats) =>
+          prevChats.map((chat) =>
+            chat.id === activeChat
+              ? {
+                  ...chat,
+                  messages: [...chat.messages, userMessage],
+                  lastMessage: content.slice(0, 50) + "...",
+                  timestamp,
+                }
+              : chat
+          )
+        );
+      }
+  
+      setIsTyping(true);
+  
+      try {
+        const response = await fetch("https://5cff42d0a5b9.ngrok-free.app/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: content }),
+        });
+  
+        const data: { answer: string; sources?: Record<string, string> } = await response.json();
 
+  
+        // ✅ Normalize backend response
+        const assistantMessage: MessageType = {
+          id: `msg-${Date.now()}`,
+          content: data.answer, // backend returns "answer"
+          role: "assistant",
+          timestamp: new Date(),
+          sources: data.sources
+            ? Object.entries(data.sources).map(([title, url]) => ({
+                title,
+                url,
+              }))
+            : [],
+        };
+  
+        setChats((prevChats) =>
+          prevChats.map((chat) =>
+            chat.id === (activeChat || prevChats[0].id)
+              ? {
+                  ...chat,
+                  messages: [...chat.messages, assistantMessage],
+                  lastMessage: data.answer.slice(0, 50) + "...",
+                  timestamp: assistantMessage.timestamp,
+                }
+              : chat
+          )
+        );
+      } catch (error) {
+        console.error("Failed to fetch response:", error);
+      } finally {
+        setIsTyping(false);
+      }
+    },
+    [activeChat]
+  );
+  
   const handleSelectChat = useCallback((chatId: string) => {
     setActiveChat(chatId);
   }, []);
@@ -89,118 +184,7 @@ export default function Index() {
     localStorage.removeItem("chatgpt-chats");
   }, []);
 
-  const handleSendMessage = useCallback(
-    async (content: string) => {
-      const messageId = `msg-${Date.now()}`;
-      const timestamp = new Date();
-
-      const userMessage: MessageType = {
-        id: messageId,
-        content,
-        role: "user",
-        timestamp,
-      };
-
-      if (!activeChat) {
-        const newChatId = `chat-${Date.now()}`;
-        const newChat: Chat = {
-          id: newChatId,
-          title: generateChatTitle(content),
-          lastMessage: content,
-          timestamp,
-          messages: [userMessage],
-        };
-
-        setChats((prevChats) => [newChat, ...prevChats]);
-        setActiveChat(newChatId);
-        setIsTyping(true);
-
-        try {
-          const response = await fetch("https://5cff42d0a5b9.ngrok-free.app/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: content }),
-          });
-
-          const data: ResponseWithSources = await response.json();
-          const assistantMessage: MessageType = {
-            id: `msg-${Date.now()}`,
-            content: data.content,
-            role: "assistant",
-            timestamp: new Date(),
-            sources: data.sources,
-          };
-
-          setChats((prevChats) =>
-            prevChats.map((chat) =>
-              chat.id === newChatId
-                ? {
-                    ...chat,
-                    messages: [...chat.messages, assistantMessage],
-                    lastMessage: data.content.slice(0, 50) + "...",
-                    timestamp: assistantMessage.timestamp,
-                  }
-                : chat
-            )
-          );
-        } catch (error) {
-          console.error("Failed to fetch response:", error);
-        } finally {
-          setIsTyping(false);
-        }
-      } else {
-        setChats((prevChats) =>
-          prevChats.map((chat) =>
-            chat.id === activeChat
-              ? {
-                  ...chat,
-                  messages: [...chat.messages, userMessage],
-                  lastMessage: content.slice(0, 50) + "...",
-                  timestamp,
-                }
-              : chat
-          )
-        );
-
-        setIsTyping(true);
-
-        try {
-          const response = await fetch("http://localhost:8000/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message: content }),
-          });
-
-          const data: ResponseWithSources = await response.json();
-          const assistantMessage: MessageType = {
-            id: `msg-${Date.now()}`,
-            content: data.content,
-            role: "assistant",
-            timestamp: new Date(),
-            sources: data.sources,
-          };
-
-          setChats((prevChats) =>
-            prevChats.map((chat) =>
-              chat.id === activeChat
-                ? {
-                    ...chat,
-                    messages: [...chat.messages, assistantMessage],
-                    lastMessage: data.content.slice(0, 50) + "...",
-                    timestamp: assistantMessage.timestamp,
-                  }
-                : chat
-            )
-          );
-        } catch (error) {
-          console.error("Failed to fetch response:", error);
-        } finally {
-          setIsTyping(false);
-        }
-      }
-    },
-    [activeChat]
-  );
+ 
 
   const currentChat = chats.find((chat) => chat.id === activeChat);
   const messages = currentChat?.messages || [];
@@ -216,6 +200,7 @@ export default function Index() {
           chats={chats}
           activeChat={activeChat}
           onNewChat={handleNewChat}
+
           onSelectChat={handleSelectChat}
           onDeleteChat={handleDeleteChat}
           onClearAll={handleClearAll}
